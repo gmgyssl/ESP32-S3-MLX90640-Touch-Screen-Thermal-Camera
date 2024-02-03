@@ -69,7 +69,7 @@ float MAXTEMP = 27;  // 80.6 F
 #define MLX_MIRROR 0 // Set 1 when the camera is facing the screen
 #define FILTER_ENABLE 1
 
-#define FAHRENHEIT 1
+#define FAHRENHEIT 0
 
 //Interploation need a lot ram, can't work in wifi mode
 #ifndef WIFI_MODE
@@ -91,6 +91,7 @@ void setup(void)
     digitalWrite(LCD_BLK, HIGH);
 
     USBSerial.begin(115200);
+    USBSerial.println("setup");
 
 #ifdef WIFI_MODE
 
@@ -124,7 +125,7 @@ void setup(void)
 
     lcd.init();
     lcd.setRotation(0);
-    display_ui();
+    display_ui_static();
 
     SPI.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
     if (SD_init())
@@ -208,8 +209,11 @@ int fps = 0;
 float max_temp = 0.0;
 int record_index = 0;
 
-float convertToF(float c) {
-  return (c * 9/5) + 32;
+float convertTemp(float c) {
+  if(FAHRENHEIT == 1) {
+    return (c * 9/5) + 32;
+  }
+  return c;
 }
 
 void loop()
@@ -235,11 +239,14 @@ void loop()
     MINTEMP = frame[0];
     
     // if less than 12.8 deg F (6 deg c) difference
-    if ( MAXTEMP - MINTEMP < 6 ) {
+    /*if ( MAXTEMP - MINTEMP < 6 ) {
     	float mid = frame[383];
     	MINTEMP = mid - 3;
-    	MAXTEMP = mid - 3;
-    }
+    	MAXTEMP = mid + 3;
+    }*/
+
+    USBSerial.println((String) "MINTEMP " + MINTEMP);
+    USBSerial.println((String) "MAXTEMP " + MAXTEMP);
 
     if (INTERPOLATION_ENABLE == 1)
     {
@@ -274,13 +281,15 @@ void loop()
 
     if ((millis() - runtime) > 2000)
     {
+        display_ui_static();
+        
         lcd.fillRect(0, 280, 319, 79, TFT_BLACK);
 
         lcd.setTextSize(4);
         lcd.setCursor(0, 280);
         lcd.setTextColor(camColors[map_f(max_temp / fps, MINTEMP, MAXTEMP)]);
         lcd.println("  Max Temp:");
-        lcd.printf("  %6.1lf F", max_temp / fps);
+        lcd.printf("  %6.1lf F", convertTemp(max_temp / fps));
 
         lcd.setTextSize(1);
         lcd.setTextColor(TFT_WHITE);
@@ -330,9 +339,7 @@ void filter_frame(float *in, float *out)
             else
                 out[i] = in[i];
 
-            if (FAHRENHEIT == 1) {
-              out[i] = convertToF(out[i]);
-            }
+            out[i] = convertTemp(out[i]);
         }
     }
     else
@@ -345,9 +352,7 @@ void filter_frame(float *in, float *out)
                 } else {
                     out[32 * i + 31 - j] = in[32 * i + j];
                 }
-                if (FAHRENHEIT == 1) {
-                  out[32 * i + 31 - j] = convertToF(out[32 * i + 31 - j]);
-                }
+                out[32 * i + 31 - j] = convertTemp(out[32 * i + 31 - j]);
             }
         }
     }
@@ -445,20 +450,22 @@ void qusort(float s[], int start, int end) //自定义函数 qusort()
         qusort(s, j + 1, end);
 }
 
-void display_ui()
+void display_ui_static()
 {
+    lcd.fillRect(0, 255, 320, 50, TFT_BLACK);
     for (int i = 0; i < 256; i++)
         lcd.drawFastVLine(32 + i, 255, 20, camColors[i]);
 
     lcd.setTextSize(2);
     lcd.setCursor(5, 255);
-    lcd.println((String) "" + MINTEMP);
+    lcd.println((String) "" + (uint8_t) convertTemp(MINTEMP));
 
     lcd.setCursor(290, 255);
-    lcd.println((String) "" + MAXTEMP);
+    lcd.println((String) "" + (uint8_t) convertTemp(MAXTEMP));
 
     lcd.fillRect(220, 380, 80, 80, TFT_GREEN);
-    lcd.setCursor(230, 390);
+    lcd.setTextColor(TFT_BLACK);
+    lcd.setCursor(240, 420);
     lcd.println("SAVE");
 
 #ifdef WIFI_MODE
