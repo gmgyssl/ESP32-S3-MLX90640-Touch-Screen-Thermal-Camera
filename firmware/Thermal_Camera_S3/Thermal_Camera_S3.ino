@@ -62,14 +62,18 @@ const int i2c_touch_addr = TOUCH_I2C_ADD;
 int touch_flag = 0;
 int pos[2] = {0, 0};
 
-#define MINTEMP 28
-#define MAXTEMP 37
+//#define MINTEMP 10 // 50 F
+//#define MAXTEMP 26.6 // 80 F
+float MINTEMP = 0;
+float MAXTEMP = 27;  // 80.6 F
 #define MLX_MIRROR 0 // Set 1 when the camera is facing the screen
 #define FILTER_ENABLE 1
 
+#define FAHRENHEIT 1
+
 //Interploation need a lot ram, can't work in wifi mode
 #ifndef WIFI_MODE
-#define INTERPOLATION_ENABLE 1
+#define INTERPOLATION_ENABLE 0 //1
 #else
 #define INTERPOLATION_ENABLE 0
 #endif
@@ -204,6 +208,10 @@ int fps = 0;
 float max_temp = 0.0;
 int record_index = 0;
 
+float convertToF(float c) {
+  return (c * 9/5) + 32;
+}
+
 void loop()
 {
     //获取一帧
@@ -222,7 +230,16 @@ void loop()
 
     //快排
     qusort(frame, 0, 32 * 24 - 1);
-    max_temp += frame[767];
+    max_temp += frame[767]; // get last frame
+    MAXTEMP = max_temp;
+    MINTEMP = frame[0];
+    
+    // if less than 12.8 deg F (6 deg c) difference
+    if ( MAXTEMP - MINTEMP < 6 ) {
+    	float mid = frame[383];
+    	MINTEMP = mid - 3;
+    	MAXTEMP = mid - 3;
+    }
 
     if (INTERPOLATION_ENABLE == 1)
     {
@@ -263,7 +280,7 @@ void loop()
         lcd.setCursor(0, 280);
         lcd.setTextColor(camColors[map_f(max_temp / fps, MINTEMP, MAXTEMP)]);
         lcd.println("  Max Temp:");
-        lcd.printf("  %6.1lf C", max_temp / fps);
+        lcd.printf("  %6.1lf F", max_temp / fps);
 
         lcd.setTextSize(1);
         lcd.setTextColor(TFT_WHITE);
@@ -312,18 +329,27 @@ void filter_frame(float *in, float *out)
                 out[i] = (out[i] + in[i]) / 2;
             else
                 out[i] = in[i];
+
+            if (FAHRENHEIT == 1) {
+              out[i] = convertToF(out[i]);
+            }
         }
     }
     else
     {
-        for (int i = 0; i < 24; i++)
+        for (int i = 0; i < 24; i++) {
             for (int j = 0; j < 32; j++)
             {
-                if (FILTER_ENABLE == 1)
+                if (FILTER_ENABLE == 1) {
                     out[32 * i + 31 - j] = (out[32 * i + 31 - j] + in[32 * i + j]) / 2;
-                else
+                } else {
                     out[32 * i + 31 - j] = in[32 * i + j];
+                }
+                if (FAHRENHEIT == 1) {
+                  out[32 * i + 31 - j] = convertToF(out[32 * i + 31 - j]);
+                }
             }
+        }
     }
 }
 
