@@ -57,16 +57,18 @@ LGFX lcd;
 #define MLX_I2C_ADDR 0x33
 Adafruit_MLX90640 mlx;
 
+#define SCREEN_WIDTH 320
+
 const int i2c_touch_addr = TOUCH_I2C_ADD;
 #define get_pos ft6236_pos
 int touch_flag = 0;
 int pos[2] = {0, 0};
 
-#define UI_REFRESH_SECONDS 1
+#define UI_REFRESH_SECONDS 1.0
 
 #define FAHRENHEIT 1
 #define SAVE_SCREENSHOTS 1
-String screenshotsDir = "screenshots1";
+String screenshotsDir = String("/screenshots1");
 
 //#define MINTEMP 28
 //#define MAXTEMP 37
@@ -190,13 +192,13 @@ void setup(void)
     //image init
     if (INTERPOLATION_ENABLE == 1)
     {
-        inter_p = (uint16_t *)malloc(320 * 240 * sizeof(uint16_t));
+        inter_p = (uint16_t *)malloc(SCREEN_WIDTH * 240 * sizeof(uint16_t));
         if (inter_p == NULL)
         {
             USBSerial.println(F("inter_p Malloc error"));
         }
 
-        for (int i = 0; i < 320 * 240; i++)
+        for (int i = 0; i < SCREEN_WIDTH * 240; i++)
         {
             *(inter_p + i) = 0x480F;
         }
@@ -216,8 +218,6 @@ void setup(void)
         temp_frame[i] = MINTEMP;
     }
     USBSerial.println(ESP.getFreeHeap());
-
-    USBSerial.println(F("All init over."));
 }
 
 uint32_t runtime = 0;
@@ -225,6 +225,8 @@ int fps = 0;
 float avg_max_temp = 0.0;
 float avg_min_temp = 0.0;
 int record_index = 0;
+
+int frameCount = 0;
 
 void loop()
 {
@@ -235,6 +237,7 @@ void loop()
         USBSerial.println(F("Get frame failed"));
         return;
     }
+    frameCount++;
 
     bug_fix(frame);
 
@@ -262,7 +265,7 @@ void loop()
         //温度矩阵转换图像矩阵，将32*24插值到320*240
         //Display with 320*240 pixel
         interpolation(temp_frame, inter_p);
-        lcd.pushImage(0, 0, 320, 240, (lgfx::rgb565_t *)inter_p);
+        lcd.pushImage(0, 0, SCREEN_WIDTH, 240, (lgfx::rgb565_t *)inter_p);
     }
     else
     {
@@ -282,7 +285,7 @@ void loop()
     if (get_pos(pos))
     {
         // USBSerial.println((String) "x=" + pos[0] + ",y=" + pos[1]);
-        if (pos[0] > 210 && pos[1] > 400 && pos[0] < 320 && pos[1] < 480)
+        if (pos[0] > 210 && pos[1] > 400 && pos[0] < SCREEN_WIDTH && pos[1] < 480)
         {
             touch_flag = 1;
         }
@@ -291,38 +294,49 @@ void loop()
     if ((millis() - runtime) > UI_REFRESH_SECONDS * 1000)
     {
     	  display_ui();
-        lcd.fillRect(0, 280, 319, 79, TFT_BLACK);
+
+        int y = 260;
+
+        lcd.fillRect(0, y, 300, 100, TFT_BLACK);
         lcd.fillRect(0, 360, 150, 150, TFT_BLACK);
 
-        lcd.setCursor(0, 300);
+        lcd.setCursor(0, y+2);
+        lcd.setTextColor(TFT_WHITE);
         
         if(DYNAMIC_RANGE != 1) {
           lcd.setTextColor(camColors[map_f(avg_min_temp / fps, MINTEMP, MAXTEMP)]);
         }
-        lcd.printf("Min temp: %6.1lf F", convertTemp(avg_min_temp / fps));  
+        lcd.printf("Min: %3.1lfF", convertTemp(avg_min_temp / fps));  
 
         lcd.setTextSize(2);
-        lcd.setCursor(0, 280);
+        lcd.setCursor(160, y+2);
         if(DYNAMIC_RANGE != 1) {
           lcd.setTextColor(camColors[map_f(avg_max_temp / fps, MINTEMP, MAXTEMP)]);
         }
-        lcd.printf("Max temp: %6.1lf F", convertTemp(avg_max_temp / fps));
+        lcd.printf("Max: %3.1lfF", convertTemp(avg_max_temp / fps));
 
+        y += 20;
         lcd.setTextSize(1);
         lcd.setTextColor(TFT_WHITE);
-        lcd.setCursor(0, 350);
-        lcd.printf("  FPS:%2.1lf", fps / UI_REFRESH_SECONDS);
-
-        lcd.setCursor(0, 360);
+        lcd.setCursor(0, y);
+        lcd.printf("FPS:%2.0lf", fps / UI_REFRESH_SECONDS);
+        y+= 10;
+        lcd.setCursor(0, y);
+        lcd.printf("frame:%2.0ld", frameCount);
+        y+= 10;
+        lcd.setCursor(0, y);
+        lcd.print(screenshotsDir);
+        y+= 10;
+        /*lcd.setCursor(0, y);
         lcd.printf("  frame[1]:%2.1lf", convertTemp(frame[1]));
-
-        lcd.setCursor(0, 370);
+        y += 10;
+        lcd.setCursor(0, y);
         lcd.printf("  frame[767]:%2.1lf", convertTemp(frame[767]));
-
-        lcd.setCursor(0, 380);
+        y += 10;*/
+        lcd.setCursor(0, y);
         lcd.printf("  MINTEMP:%2.1lf", convertTemp(MINTEMP));
-
-        lcd.setCursor(0, 390);
+        y += 10;
+        lcd.setCursor(0, y);
         lcd.printf("  MAXTEMP:%2.1lf", convertTemp(MAXTEMP));
 
 #ifdef WIFI_MODE
@@ -337,20 +351,25 @@ void loop()
         {
             touch_flag = 0;
 
-            lcd.fillRect(0, 380, 220, 80, TFT_BLACK);
-            lcd.setTextColor(TFT_WHITE);
+            //lcd.fillRect(0, 380, 220, 80, TFT_BLACK);
+            //lcd.setTextColor(TFT_WHITE);
             lcd.setTextSize(1);
-            lcd.setCursor(10, 390);
-            lcd.printf("Record NO.%d to SD", record_index);
+            lcd.setCursor(0, 390);
+            lcd.print("Saving...");
 
             //Save Max temperture to sd card
             char c[20];
-            sprintf(c, "[%d]\tT:%lf C\n", record_index++, avg_max_temp / fps);
+            sprintf(c, "[%d]\tT:%lf C\n", record_index, avg_max_temp / fps);
             appendFile(SD, "/temper.txt", c);
 
             if(SAVE_SCREENSHOTS == 1) {
-              screenshot(&lcd, SD, String("screenshot-") + record_index + ".bmp");
+              String path = String(screenshotsDir) + "/" + "screenshot-" + record_index + ".bmp";
+              lcd.print("Saving " + path);
+              screenshot(&lcd, SD, path);
             }
+            record_index++;
+            //lcd.setCursor(0, 390);
+            //lcd.printf("Record NO.%d to SD", record_index);
         }
 
         runtime = millis();
@@ -396,7 +415,7 @@ void interpolation(float *data, uint16_t *out)
     {
         for (uint8_t w = 0; w < 32; w++)
         {
-            out[h * 10 * 320 + w * 10] = map_f(data[h * 32 + w], MINTEMP, MAXTEMP);
+            out[h * 10 * SCREEN_WIDTH + w * 10] = map_f(data[h * 32 + w], MINTEMP, MAXTEMP);
         }
     }
     for (int h = 0; h < 240; h += 10)
@@ -405,33 +424,33 @@ void interpolation(float *data, uint16_t *out)
         {
             for (int i = 0; i < 9; i++)
             {
-                out[h * 320 + w + i] = (out[h * 320 + w - 1] * (9 - i) + out[h * 320 + w + 9] * (i + 1)) / 10;
+                out[h * SCREEN_WIDTH + w + i] = (out[h * SCREEN_WIDTH + w - 1] * (9 - i) + out[h * SCREEN_WIDTH + w + 9] * (i + 1)) / 10;
             }
         }
         for (int i = 0; i < 9; i++)
         {
-            out[h * 320 + 311 + i] = out[h * 320 + 310];
+            out[h * SCREEN_WIDTH + 311 + i] = out[h * SCREEN_WIDTH + 310];
         }
     }
-    for (int w = 0; w < 320; w++)
+    for (int w = 0; w < SCREEN_WIDTH; w++)
     {
         for (int h = 1; h < 230; h += 10)
         {
             for (int i = 0; i < 9; i++)
             {
-                out[(h + i) * 320 + w] = (out[(h - 1) * 320 + w] * (9 - i) + out[(h + 9) * 320 + w] * (i + 1)) / 10;
+                out[(h + i) * SCREEN_WIDTH + w] = (out[(h - 1) * SCREEN_WIDTH + w] * (9 - i) + out[(h + 9) * SCREEN_WIDTH + w] * (i + 1)) / 10;
             }
         }
         for (int i = 0; i < 9; i++)
         {
-            out[(231 + i) * 320 + w] = out[230 * 320 + w];
+            out[(231 + i) * SCREEN_WIDTH + w] = out[230 * SCREEN_WIDTH + w];
         }
     }
     for (int h = 0; h < 240; h++)
     {
-        for (int w = 0; w < 320; w++)
+        for (int w = 0; w < SCREEN_WIDTH; w++)
         {
-            out[h * 320 + w] = camColors[out[h * 320 + w]];
+            out[h * SCREEN_WIDTH + w] = camColors[out[h * SCREEN_WIDTH + w]];
         }
     }
 }
@@ -481,21 +500,37 @@ void qusort(float s[], int start, int end) //自定义函数 qusort()
 
 void display_ui()
 {
-	  lcd.fillRect(0, 255, 320, 50, TFT_BLACK);
+    int y = 241;
+    lcd.setTextColor(TFT_WHITE);
+	  lcd.fillRect(0, y, SCREEN_WIDTH, 50, TFT_BLACK);
+    int left = (SCREEN_WIDTH - 256) / 2;
+
+    for (int i = 0; i < left; i++)
+      lcd.drawFastVLine(i, 241, 20, camColors[0]);
+
     for (int i = 0; i < 256; i++)
-        lcd.drawFastVLine(32 + i, 255, 20, camColors[i]);
+      lcd.drawFastVLine(left + i, 241, 20, camColors[i]);
+
+    for (int i = 0; i < 256; i++)
+      lcd.drawFastVLine(left + 256 + i, 241, 20, camColors[255]);
 
     lcd.setTextSize(2);
-    lcd.setCursor(5, 255);
+    lcd.setCursor(5, y+2);
     //lcd.println((String) "" + MINTEMP);
     lcd.printf("%2.0lf", convertTemp(MINTEMP));
 
-    lcd.setCursor(290, 255);
+    int x = 290;
+    float convertedMaxTemp = floor(convertTemp(MAXTEMP));
+    if(convertedMaxTemp > 99) {
+      x -= 10;
+    }
+    lcd.setCursor(x, y+2);
     //lcd.println((String) "" + MAXTEMP);
-    lcd.printf("%2.0lf", convertTemp(MAXTEMP));
+    lcd.printf("%2.0lf", convertedMaxTemp);
 
+    lcd.setTextColor(TFT_BLACK);
     lcd.fillRect(220, 380, 80, 80, TFT_GREEN);
-    lcd.setCursor(230, 390);
+    lcd.setCursor(230, 410);
     lcd.println("SAVE");
 
 #ifdef WIFI_MODE
@@ -553,7 +588,7 @@ String getNextScreenshotDirectory(fs::FS &fs) {
   if (!root)
   {
       USBSerial.println(F("Failed to open directory"));
-      return "screenshots1";
+      return String("/screenshots1");
   }
 
   uint8_t screenshotDirectories = 1;
@@ -565,14 +600,14 @@ String getNextScreenshotDirectory(fs::FS &fs) {
     file = root.openNextFile();
   }
 
-  return "screenshots" + screenshotDirectories;
+  return String("/screenshots") + screenshotDirectories;
 }
 
 void listDir(fs::FS &fs, const char *dirname, uint8_t levels)
 {
     USBSerial.printf("Listing directory: %s\n", dirname);
 
-    File root = fs.open(dirname);
+    File root = fs.open(String("/") + dirname);
     if (!root)
     {
         USBSerial.println(F("Failed to open directory"));
@@ -692,12 +727,20 @@ void bug_fix(float *frame)
     }
 }
 
-void screenshot(LGFX* _lcd, fs::FS &fs, String filename) {
-  File file = fs.open("/" + screenshotsDir + "/" + filename, FILE_WRITE);
-  if (!file) {
-    ESP_LOGW("file not open(%s)\n", filename);
+boolean screenshot(LGFX* _lcd, fs::FS &fs, String path) {
+  USBSerial.println("screenshot begin");
+  if(!fs.mkdir(screenshotsDir)) {
+    USBSerial.println("Failed to create directory " + screenshotsDir);
   }
-  fs.mkdir("/" + screenshotsDir);
+  //fs.mkdir("2screenshots");
+  USBSerial.println(path);
+
+  File file = fs.open(path, FILE_WRITE);
+  if (!file) {
+    USBSerial.println("file not found");
+    ESP_LOGW("file not open(%s)\n", path);
+    return false;
+  }
 
   uint8_t headSize = 66;
   uint16_t width = _lcd->width();
@@ -821,4 +864,7 @@ void screenshot(LGFX* _lcd, fs::FS &fs, String filename) {
   _lcd->setSwapBytes(swap);
 
   file.close();
+
+  USBSerial.println("screenshot end");
+  return true;
 }
